@@ -36,7 +36,7 @@ func (a *Apps) sonarrHandlers() {
 	a.HandleAPIpath(starr.Sonarr, "/tag/{tid:[0-9]+}/{label}", sonarrUpdateTag, "PUT")
 	a.HandleAPIpath(starr.Sonarr, "/tag/{label}", sonarrSetTag, "PUT")
 	a.HandleAPIpath(starr.Sonarr, "/update", sonarrUpdateSeries, "PUT")
-	a.HandleAPIpath(starr.Sonarr, "/command/search/{seriesid:[0-9]+}", sonarrTriggerSearchSeries, "GET")
+	a.HandleAPIpath(starr.Sonarr, "/command/{command:[a-z]+}/{seriesid:[0-9]+}", sonarrTriggerCommand, "GET")
 }
 
 // SonarrConfig represents the input data for a Sonarr server.
@@ -153,15 +153,17 @@ func sonarrUnmonitorEpisode(r *http.Request) (int, interface{}) {
 	return http.StatusOK, episodes[0]
 }
 
-func sonarrTriggerSearchSeries(r *http.Request) (int, interface{}) {
+func sonarrTriggerCommand(r *http.Request) (int, interface{}) {
+	command := "Series" + strings.Title(mux.Vars(r)["seriesid"])
 	seriesID, _ := strconv.ParseInt(mux.Vars(r)["seriesid"], mnd.Base10, mnd.Bits64)
 
 	output, err := getSonarr(r).SendCommand(&sonarr.CommandRequest{
-		Name:     "SeriesSearch",
+		Name:     command,
 		SeriesID: seriesID,
 	})
 	if err != nil {
-		return http.StatusServiceUnavailable, fmt.Errorf("triggering series search: %w", err)
+		return http.StatusServiceUnavailable,
+			fmt.Errorf("triggering command '%s' on series %d: %w", command, seriesID, err)
 	}
 
 	return http.StatusOK, output.Status
