@@ -1,15 +1,19 @@
 package services
 
 import (
-	"encoding/json"
 	"time"
+
+	"github.com/Notifiarr/notifiarr/pkg/notifiarr"
 )
 
 // runChecks runs checks from an external package.
-func (c *Config) RunChecks(source *Source) {
-	if !c.Disabled {
-		c.triggerChan <- source
+func (c *Config) RunChecks(source notifiarr.EventType) {
+	if c.triggerChan == nil || c.stopChan == nil {
+		c.Errorf("Cannot run service checks. Go routine is not running.")
+		return
 	}
+
+	c.triggerChan <- source
 }
 
 // runChecks runs checks that are due. Passing true, runs them even if they're not due.
@@ -54,15 +58,15 @@ func (c *Config) getResults() []*CheckResult {
 }
 
 // SendResults sends a set of Results to Notifiarr.
-func (c *Config) SendResults(url string, results *Results) {
-	results.Type = NotifiarrEventType
+func (c *Config) SendResults(results *Results) {
 	results.Interval = c.Interval.Seconds()
 
-	data, _ := json.MarshalIndent(results, "", " ")
-	if _, _, err := c.Notifiarr.SendJSON(url, data); err != nil {
-		c.Errorf("Sending service check update to %s: %v", url, err)
+	if _, err := c.Notifiarr.SendData(notifiarr.SvcRoute.Path(results.What), results, true); err != nil {
+		c.Errorf("Sending service check update to Notifiarr, event: %s, buffer: %d/%d, error: %v",
+			results.What, len(c.checks), cap(c.checks), err)
 	} else {
-		c.Printf("Sent %d service check states to %s", len(results.Svcs), url)
+		c.Printf("Sent %d service check states to Notifiarr, event: %s, buffer: %d/%d",
+			len(results.Svcs), results.What, len(c.checks), cap(c.checks))
 	}
 }
 

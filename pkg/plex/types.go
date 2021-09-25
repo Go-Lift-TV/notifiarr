@@ -54,12 +54,12 @@ type Session struct {
 		ID        string `json:"id"`
 		Location  string `json:"location"`
 	} `json:"Session"`
-	GuID []*GUID `json:"Guid,omitempty"`
+	GuID  []*GUID  `json:"Guid,omitempty"`
+	Media []*Media `json:"Media,omitempty"`
 	/* Notifiarr does not need these. :shrug:
 	Country  []*Country  `json:"Country"`
 	Director []*Director `json:"Director"`
 	Genre    []*Genre    `json:"Genre"`
-	Media    []*Media    `json:"Media"`
 	Producer []*Producer `json:"Producer"`
 	Role     []*Role     `json:"Role"`
 	Similar  []*Similar  `json:"Similar"`

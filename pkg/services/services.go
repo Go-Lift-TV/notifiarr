@@ -11,31 +11,70 @@ import (
 	"github.com/Notifiarr/notifiarr/pkg/notifiarr"
 )
 
-// Start begins the service check routines.
-func (c *Config) Start(services []*Service) error {
-	services = append(services, c.collectApps()...)
-	if c.Disabled || len(services) == 0 {
-		c.Disabled = true
-		return nil
-	} else if err := c.setup(services); err != nil {
-		return err
+func (c *Config) Setup(services []*Service) (*notifiarr.ServiceConfig, error) {
+	if c.Parallel > MaximumParallel {
+		c.Parallel = MaximumParallel
+	} else if c.Parallel == 0 {
+		c.Parallel = 1
 	}
 
-	c.start()
+	if c.Interval.Duration == 0 {
+		c.Interval.Duration = DefaultSendInterval
+	} else if c.Interval.Duration < MinimumSendInterval {
+		c.Interval.Duration = MinimumSendInterval
+	}
 
-	return nil
+	services = append(services, c.collectApps()...)
+	if len(services) == 0 {
+		c.Disabled = true
+	}
+
+	return c.setup(services)
 }
 
-// start runs Parallel checkers and the check reporter.
-func (c *Config) start() {
-	if c.LogFile != "" {
-		c.Logger = logs.CustomLog(c.LogFile, "Services")
-		c.Printf("==> Service Checks Log File: %s", c.LogFile)
+func (c *Config) setup(services []*Service) (*notifiarr.ServiceConfig, error) {
+	c.services = make(map[string]*Service)
+	scnfg := &notifiarr.ServiceConfig{
+		Interval: c.Interval,
+		Parallel: c.Parallel,
+		Disabled: c.Disabled,
+		Checks:   make([]*notifiarr.ServiceCheck, len(services)),
+	}
 
-		for i := range c.services {
-			c.services[i].log = c.Logger
+	for i, check := range services {
+		if err := services[i].validate(); err != nil {
+			return nil, err
+		}
+
+		// Add this validated service to our service map.
+		c.services[services[i].Name] = services[i]
+		scnfg.Checks[i] = &notifiarr.ServiceCheck{
+			Name:     check.Name,
+			Type:     string(check.Type),
+			Expect:   check.Expect,
+			Timeout:  check.Timeout,
+			Interval: check.Interval,
 		}
 	}
+
+	return scnfg, nil
+}
+
+// Start begins the service check routines.
+// Runs Parallel checkers and the check reporter.
+func (c *Config) Start() {
+	if c.LogFile != "" {
+		c.Logger = logs.CustomLog(c.LogFile, "Services")
+	}
+
+	for i := range c.services {
+		c.services[i].log = c.Logger
+	}
+
+	c.checks = make(chan *Service, DefaultBuffer)
+	c.done = make(chan bool)
+	c.stopChan = make(chan struct{})
+	c.triggerChan = make(chan notifiarr.EventType)
 
 	for i := uint(0); i < c.Parallel; i++ {
 		go func() {
@@ -55,52 +94,35 @@ func (c *Config) start() {
 	}
 
 	go c.runServiceChecker()
-	c.Printf("==> Service Checker Started! %d services, interval: %s, parallel: %d",
-		len(c.services), c.Interval, c.Parallel)
+
+	word := "Started"
+	if c.Disabled {
+		word = "Disabled"
+	}
+
+	c.Printf("==> Service Checker %s! %d services, interval: %s, parallel: %d",
+		word, len(c.services), c.Interval, c.Parallel)
 }
 
 func (c *Config) runServiceChecker() {
-	ticker := time.NewTicker(c.Interval.Duration)
-	second := time.NewTicker(10 * time.Second) //nolint:gomnd
+	defer c.CapturePanic()
 
-	defer func() {
-		c.CapturePanic()
-		second.Stop()
-		ticker.Stop()
-	}()
+	ticker := &time.Ticker{C: make(<-chan time.Time)}
+	second := &time.Ticker{C: make(<-chan time.Time)}
 
-	c.runChecks(true)
-	c.SendResults(notifiarr.ProdURL, &Results{
-		What: "start",
-		Svcs: c.getResults(),
-	})
+	if !c.Disabled {
+		ticker = time.NewTicker(c.Interval.Duration)
+		defer ticker.Stop()
+
+		second = time.NewTicker(10 * time.Second) //nolint:gomnd
+		defer second.Stop()
+
+		c.runChecks(true)
+		c.SendResults(&Results{What: notifiarr.EventStart, Svcs: c.getResults()})
+	}
 
 	for {
 		select {
-		case <-second.C:
-			c.runChecks(false)
-		case <-ticker.C:
-			c.SendResults(notifiarr.ProdURL, &Results{
-				What: "timer",
-				Svcs: c.getResults(),
-			})
-		case source := <-c.triggerChan:
-			c.runChecks(true)
-
-			if source.URL == "" {
-				data, _ := json.MarshalIndent(&Results{
-					What:     "log",
-					Svcs:     c.getResults(),
-					Type:     NotifiarrEventType,
-					Interval: c.Interval.Seconds(),
-				}, "", " ")
-				c.Print("Payload (log only):", string(data))
-			} else {
-				c.SendResults(source.URL, &Results{
-					What: source.Name,
-					Svcs: c.getResults(),
-				})
-			}
 		case <-c.stopChan:
 			for i := uint(0); i < c.Parallel; i++ {
 				c.checks <- nil
@@ -108,42 +130,25 @@ func (c *Config) runServiceChecker() {
 			}
 
 			c.stopChan <- struct{}{}
+			c.Printf("==> Service Checker Stopped!")
 
 			return
+		case <-ticker.C:
+			c.SendResults(&Results{What: notifiarr.EventCron, Svcs: c.getResults()})
+		case event := <-c.triggerChan:
+			c.Debugf("Running all service checks via event: %s, buffer: %d/%d", event, len(c.checks), cap(c.checks))
+			c.runChecks(true)
+
+			if event != "log" {
+				c.SendResults(&Results{What: event, Svcs: c.getResults()})
+			} else {
+				data, _ := json.MarshalIndent(&Results{Svcs: c.getResults(), Interval: c.Interval.Seconds()}, "", " ")
+				c.Debug("Service Checks Payload (log only):", string(data))
+			}
+		case <-second.C:
+			c.runChecks(false)
 		}
 	}
-}
-
-func (c *Config) setup(services []*Service) error {
-	c.services = make(map[string]*Service)
-	c.checks = make(chan *Service, DefaultBuffer)
-	c.done = make(chan bool)
-	c.stopChan = make(chan struct{})
-	c.triggerChan = make(chan *Source)
-
-	for i := range services {
-		services[i].log = c.Logger
-		if err := services[i].validate(); err != nil {
-			return err
-		}
-
-		// Add this validated service to our service map.
-		c.services[services[i].Name] = services[i]
-	}
-
-	if c.Parallel > MaximumParallel {
-		c.Parallel = MaximumParallel
-	} else if c.Parallel == 0 {
-		c.Parallel = 1
-	}
-
-	if c.Interval.Duration == 0 {
-		c.Interval.Duration = DefaultSendInterval
-	} else if c.Interval.Duration < MinimumSendInterval {
-		c.Interval.Duration = MinimumSendInterval
-	}
-
-	return nil
 }
 
 // Stop ends all service checker routines.

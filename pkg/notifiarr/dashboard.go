@@ -2,13 +2,13 @@ package notifiarr
 
 import (
 	"fmt"
-	"net/http"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/Notifiarr/notifiarr/pkg/apps"
+	"golift.io/cnfg"
 	"golift.io/starr/radarr"
 )
 
@@ -21,6 +21,11 @@ const (
 	showLatest = 5
 )
 
+// dashConfig is the configuration returned from the notifiarr website.
+type dashConfig struct {
+	Interval cnfg.Duration `json:"interval"` // how often to fire in minutes.
+}
+
 // Sortable holds data about any Starr item. Kind of a generic data store.
 type Sortable struct {
 	id      int64
@@ -31,6 +36,7 @@ type Sortable struct {
 	Episode int64     `json:"episode,omitempty"`
 }
 
+// SortableList allows sorting a list.
 type SortableList []*Sortable
 
 // State is partially filled out once for each app instance.
@@ -44,6 +50,7 @@ type State struct {
 	Upcoming int64         `json:"upcoming,omitempty"`
 	Next     SortableList  `json:"next,omitempty"`
 	Latest   SortableList  `json:"latest,omitempty"`
+	OnDisk   int64         `json:"onDisk,omitempty"`
 	Elapsed  time.Duration `json:"elapsed"` // How long it took.
 	Name     string        `json:"name"`
 	// Radarr
@@ -71,6 +78,7 @@ type State struct {
 	Errors      int64 `json:"errors,omitempty"`
 }
 
+// States is our compiled states for the dashboard.
 type States struct {
 	Lidarr  []*State `json:"lidarr"`
 	Radarr  []*State `json:"radarr"`
@@ -80,31 +88,33 @@ type States struct {
 	Deluge  []*State `json:"deluge"`
 }
 
-func (t *Triggers) GetState() {
+// SendDashboardState sends the current states for the dashboard.
+func (t *Triggers) SendDashboardState(event EventType) {
 	if t.stop == nil {
 		return
 	}
 
-	t.state <- struct{}{}
+	t.dash.C <- event
 }
 
-func (c *Config) getState() {
-	start := time.Now()
-	states := c.getStates()
-	apps := time.Since(start).Round(time.Millisecond)
+func (c *Config) sendDashboardState(event EventType) {
+	var (
+		start  = time.Now()
+		states = c.getStates()
+		apps   = time.Since(start).Round(time.Millisecond)
+	)
 
-	//nolint:bodyclose // already closed
-	switch resp, body, err := c.SendData(c.BaseURL+DashRoute, states, true); {
-	case err != nil:
-		c.Errorf("Sending Dashboard State Data (apps:%s total:%s): %v",
-			apps, time.Since(start).Round(time.Millisecond), err)
-	case resp.StatusCode != http.StatusOK:
-		c.Errorf("Sending Dashboard State Data (apps:%s total:%s): %v: %s",
-			apps, time.Since(start).Round(time.Millisecond), ErrNon200, string(body))
-	default:
-		c.Debugf("Sent Dashboard State Data! Elapsed: apps:%s total:%s",
-			apps, time.Since(start).Round(time.Millisecond))
+	resp, err := c.SendData(DashRoute.Path(event), states, true)
+	if err != nil {
+		c.Errorf("[%s requested] Sending Dashboard State Data to Notifiarr (apps:%s total:%s): %v: %v",
+			event, apps, time.Since(start).Round(time.Millisecond), err, states)
+		return
 	}
+
+	c.Printf("[%s requested] Sent Dashboard State Data to Notifiarr! Elapsed: apps:%s total:%s."+
+		" Website took %s and replied with: %s, %s",
+		event, apps, time.Since(start).Round(time.Millisecond),
+		resp.Message.Elapsed, resp.Status, resp.Message.Response)
 }
 
 // getStates fires a routine for each app type and tries to get a lot of data fast!
@@ -351,6 +361,7 @@ func (c *Config) getLidarrState(instance int, l *apps.LidarrConfig) (*State, err
 			state.Tracks += int64(album.Statistics.TotalTrackCount)
 			state.Missing += int64(album.Statistics.TrackCount - album.Statistics.TrackFileCount)
 			have = album.Statistics.TrackCount-album.Statistics.TrackFileCount < 1
+			state.OnDisk += int64(album.Statistics.TrackFileCount)
 		}
 
 		if album.ReleaseDate.After(time.Now()) && album.Monitored && !have {
@@ -363,7 +374,12 @@ func (c *Config) getLidarrState(instance int, l *apps.LidarrConfig) (*State, err
 		}
 	}
 
-	state.Percent /= float64(state.Tracks)
+	if state.Tracks > 0 {
+		state.Percent /= float64(state.Tracks)
+	} else {
+		state.Percent = 100
+	}
+
 	state.Artists = len(artistIDs)
 	sort.Sort(dateSorter(state.Next))
 	state.Next.Shrink(showNext)
@@ -493,6 +509,7 @@ func processRadarrState(state *State, movies []*radarr.Movie) {
 
 		if movie.MovieFile != nil {
 			state.Latest = append(state.Latest, &Sortable{Name: movie.Title, Date: movie.MovieFile.DateAdded})
+			state.OnDisk++
 		}
 	}
 }
@@ -521,6 +538,7 @@ func (c *Config) getReadarrState(instance int, r *apps.ReadarrConfig) (*State, e
 			state.Editions += book.Statistics.TotalBookCount
 			state.Missing += int64(book.Statistics.BookCount - book.Statistics.BookFileCount)
 			have = book.Statistics.BookCount-book.Statistics.BookFileCount < 1
+			state.OnDisk += int64(book.Statistics.BookFileCount)
 		}
 
 		if book.ReleaseDate.After(time.Now()) && book.Monitored && !have {
@@ -533,7 +551,12 @@ func (c *Config) getReadarrState(instance int, r *apps.ReadarrConfig) (*State, e
 		}
 	}
 
-	state.Percent /= float64(state.Editions)
+	if state.Editions > 0 {
+		state.Percent /= float64(state.Editions)
+	} else {
+		state.Percent = 100
+	}
+
 	state.Authors = len(authorIDs)
 	sort.Sort(dateSorter(state.Next))
 	state.Next.Shrink(showNext)
@@ -592,6 +615,7 @@ func (c *Config) getSonarrState(instance int, s *apps.SonarrConfig) (*State, err
 			state.Size += show.Statistics.SizeOnDisk
 			state.Episodes += int64(show.Statistics.TotalEpisodeCount)
 			state.Missing += int64(show.Statistics.EpisodeCount - show.Statistics.EpisodeFileCount)
+			state.OnDisk += int64(show.Statistics.EpisodeFileCount)
 		}
 
 		if show.NextAiring.After(time.Now()) {
@@ -603,7 +627,11 @@ func (c *Config) getSonarrState(instance int, s *apps.SonarrConfig) (*State, err
 		}
 	}
 
-	state.Percent /= float64(state.Shows)
+	if state.Shows > 0 {
+		state.Percent /= float64(state.Shows)
+	} else {
+		state.Percent = 100
+	}
 
 	if state.Next, err = c.getSonarrStateUpcoming(s, state.Next); err != nil {
 		return state, fmt.Errorf("instance %d: %w", instance, err)
@@ -628,7 +656,6 @@ func (c *Config) getSonarrHistory(s *apps.SonarrConfig) ([]*Sortable, error) {
 		if len(table) >= showLatest {
 			break
 		} else if rec.EventType != "downloadFolderImported" {
-			c.Debug(rec.EventType, rec.SourceTitle)
 			continue
 		}
 

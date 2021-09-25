@@ -5,9 +5,9 @@ import "time"
 
 // Application Constants.
 const (
-	Mode0755 = 0755
-	Mode0750 = 0750
-	Mode0600 = 0600
+	Mode0755 = 0o755
+	Mode0750 = 0o750
+	Mode0600 = 0o600
 	Megabyte = 1024 * 1024
 	KB100    = 1024 * 100
 	OneDay   = 24 * time.Hour

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net"
 	"strings"
+
+	"github.com/Notifiarr/notifiarr/pkg/mnd"
 )
 
 /* This is a helper method to check if an IP is in a list/cidr. */
@@ -45,7 +47,7 @@ func (n AllowedIPs) Contains(ip string) bool {
 // This "allowed" list is later used to check incoming IPs from web requests.
 func MakeIPs(upstreams []string) (a AllowedIPs) {
 	for _, ip := range upstreams {
-		if strings.Contains(ip, "/") {
+		if !strings.Contains(ip, "/") {
 			if strings.Contains(ip, ":") {
 				ip += "/128"
 			} else {
@@ -59,4 +61,29 @@ func MakeIPs(upstreams []string) (a AllowedIPs) {
 	}
 
 	return a
+}
+
+// CheckPort attempts to bind to a port to check if it's in use or not.
+// We use this to check the port before starting the webserver.
+func CheckPort(addr string) (string, error) {
+	// Cleanup user input.
+	addr = strings.TrimPrefix(strings.TrimPrefix(strings.TrimRight(addr, "/"), "http://"), "https://")
+	if addr == "" {
+		addr = mnd.DefaultBindAddr
+	} else if !strings.Contains(addr, ":") {
+		addr = "0.0.0.0:" + addr
+	}
+
+	a, err := net.ResolveTCPAddr("tcp", addr)
+	if err != nil {
+		return addr, fmt.Errorf("provided ip:port combo is invalid: %w", err)
+	}
+
+	l, err := net.ListenTCP("tcp", a)
+	if err != nil {
+		return addr, fmt.Errorf("unable to listen on provided ip:port: %w", err)
+	}
+	defer l.Close()
+
+	return addr, nil
 }

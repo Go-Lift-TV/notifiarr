@@ -18,11 +18,6 @@ const (
 	statusSent     = "sent"
 )
 
-const (
-	movie   = "movie"
-	episode = "episode"
-)
-
 type holder struct {
 	sessions *plex.Sessions
 	error    error
@@ -31,22 +26,21 @@ type holder struct {
 var ErrNoChannel = fmt.Errorf("no channel to send session request")
 
 // SendPlexSessions sends plex sessions in a go routine through a channel.
-func (t *Triggers) SendPlexSessions(source string) {
+func (t *Triggers) SendPlexSessions(event EventType) {
 	if t.stop == nil {
 		return
 	}
 
-	t.plex <- source
+	t.plex.C <- event
 }
 
 // sendPlexSessions is fired by a timer if plex monitoring is enabled.
-func (c *Config) sendPlexSessions(source string) {
-	if body, err := c.SendMeta(source, c.URL, nil, false); err != nil {
-		c.Errorf("Sending Plex Sessions to %s: %v", c.URL, err)
-	} else if fields := strings.Split(string(body), `"`); len(fields) > 3 { //nolint:gomnd
-		c.Printf("Plex Sessions sent to %s, reply: %s", c.URL, fields[3])
+func (c *Config) sendPlexSessions(event EventType) {
+	if resp, err := c.sendPlexMeta(event, nil, false); err != nil {
+		c.Errorf("[%s requested] Sending Plex Sessions to Notifiarr: %v", event, err)
 	} else {
-		c.Printf("Plex Sessions sent to %s.", c.URL)
+		c.Printf("[%s requested] Plex Sessions sent to Notifiar. Website took %s and replied with: %s, %s",
+			event, resp.Message.Elapsed, resp.Status, resp.Message.Response)
 	}
 }
 
@@ -78,7 +72,7 @@ func (c *Config) runSessionHolder() {
 		err      error
 	)
 
-	if sessions, err = c.Plex.GetXMLSessions(); err == nil {
+	if sessions, err = c.Plex.GetSessions(); err == nil {
 		updated = time.Now()
 	}
 
@@ -95,7 +89,7 @@ func (c *Config) runSessionHolder() {
 			time.Sleep(t)
 		}
 
-		sessions, err = c.Plex.GetXMLSessions()
+		sessions, err = c.Plex.GetSessions()
 		if err == nil {
 			updated = time.Now()
 		}
@@ -108,7 +102,7 @@ func (c *Config) runSessionHolder() {
 // This is basically a hack to "watch" Plex for when an active item gets to around 90% complete.
 // This usually means the user has finished watching the item and we can send a "done" notice.
 // Plex does not send a webhook or identify in any other way when an item is "finished".
-func (c *Config) checkForFinishedItems(sent map[string]struct{}) {
+func (c *Config) checkPlexFinishedItems(sent map[string]struct{}) {
 	sessions, err := c.GetSessions(false)
 	if err != nil {
 		c.Errorf("[PLEX] Getting Sessions from %s: %v", c.Plex.URL, err)
@@ -149,13 +143,13 @@ func (c *Config) checkForFinishedItems(sent map[string]struct{}) {
 
 func (c *Config) checkSessionDone(s *plex.Session, pct float64) string {
 	switch {
-	case c.Plex.MoviesPC > 0 && strings.EqualFold(s.Type, movie):
+	case c.Plex.MoviesPC > 0 && EventType(s.Type) == EventMovie:
 		if pct < float64(c.Plex.MoviesPC) {
 			return statusWatching
 		}
 
 		return c.sendSessionDone(s)
-	case c.Plex.SeriesPC > 0 && strings.EqualFold(s.Type, episode):
+	case c.Plex.SeriesPC > 0 && EventType(s.Type) == EventEpisode:
 		if pct < float64(c.Plex.SeriesPC) {
 			return statusWatching
 		}
@@ -172,23 +166,20 @@ func (c *Config) sendSessionDone(s *plex.Session) string {
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), c.Snap.Timeout.Duration)
-	snap := c.GetMetaSnap(ctx)
+	snap := c.getMetaSnap(ctx)
 	cancel() //nolint:wsl
 
-	_, body, err := c.SendData(c.URL, &Payload{
-		Type: "plex_session_complete_" + s.Type,
+	route := PlexRoute.Path(EventType(s.Type))
+
+	_, err := c.SendData(route, &Payload{
 		Snap: snap,
-		Plex: &plex.Sessions{
-			Name:       c.Plex.Name,
-			Sessions:   []*plex.Session{s},
-			AccountMap: strings.Split(c.Plex.AccountMap, "|"),
-		},
+		Plex: &plex.Sessions{Name: c.Plex.Name, Sessions: []*plex.Session{s}},
 	}, true)
 	if err != nil {
-		return statusError + ": sending to " + c.URL + ": " + err.Error() + ": " + string(body)
+		return statusError + ": sending to " + route + ": " + err.Error()
 	}
 
-	return statusSending + " to " + c.URL
+	return statusSending
 }
 
 func (c *Config) checkPlexAgent(s *plex.Session) error {

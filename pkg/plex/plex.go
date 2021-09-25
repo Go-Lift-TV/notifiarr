@@ -20,17 +20,16 @@ import (
 // Server is the Plex configuration from a config file.
 // Without a URL or Token, nothing works and this package is unused.
 type Server struct {
-	Timeout    cnfg.Duration `toml:"timeout" xml:"timeout"`
-	Interval   cnfg.Duration `toml:"interval" xml:"interval"`
-	URL        string        `toml:"url" xml:"url"`
-	Token      string        `toml:"token" xml:"token"`
-	AccountMap string        `toml:"account_map" xml:"account_map"`
-	Name       string        `toml:"-" xml:"server"`
-	ReturnJSON bool          `toml:"return_json" xml:"return_json"`
-	NoActivity bool          `toml:"no_activity" xml:"no_activity"`
-	Cooldown   cnfg.Duration `toml:"cooldown" xml:"cooldown"`
-	SeriesPC   uint          `toml:"series_percent_complete" xml:"series_percent_complete"`
-	MoviesPC   uint          `toml:"movies_percent_complete" xml:"movies_percent_complete"`
+	Timeout    cnfg.Duration `toml:"timeout" xml:"timeout" json:"timeout"`
+	Interval   cnfg.Duration `toml:"interval" xml:"interval" json:"interval"`
+	URL        string        `toml:"url" xml:"url" json:"url"`
+	Token      string        `toml:"token" xml:"token" json:"token"`
+	AccountMap string        `toml:"account_map" xml:"account_map" json:"accountMap"`
+	Name       string        `toml:"-" xml:"-" json:"-"`
+	NoActivity bool          `toml:"no_activity" xml:"no_activity" json:"noActivity"`
+	Cooldown   cnfg.Duration `toml:"cooldown" xml:"cooldown" json:"cooldown"`
+	SeriesPC   uint          `toml:"series_percent_complete" xml:"series_percent_complete" json:"seriesPc"`
+	MoviesPC   uint          `toml:"movies_percent_complete" xml:"movies_percent_complete" json:"moviesPc"`
 	client     *http.Client
 }
 
@@ -92,10 +91,6 @@ func (s *Server) Validate() { //nolint:cyclop
 }
 
 func (s *Server) getPlexURL(ctx context.Context, url string, headers map[string]string) ([]byte, error) {
-	if s == nil || s.URL == "" || s.Token == "" {
-		return nil, ErrNoURLToken
-	}
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating http request: %w", err)

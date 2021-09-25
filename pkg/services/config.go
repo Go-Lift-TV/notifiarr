@@ -10,7 +10,7 @@ import (
 	"golift.io/cnfg"
 )
 
-// Defaults.
+// Services Defaults.
 const (
 	DefaultSendInterval  = 10 * time.Minute
 	MinimumSendInterval  = DefaultSendInterval / 2
@@ -20,10 +20,9 @@ const (
 	DefaultTimeout       = 10 * MinimumTimeout
 	MaximumParallel      = 10
 	DefaultBuffer        = 1000
-	NotifiarrEventType   = "service_checks"
 )
 
-// Errors returned by this package.
+// Errors returned by this Services package.
 var (
 	ErrNoName      = fmt.Errorf("service check is missing a unique name")
 	ErrNoCheck     = fmt.Errorf("service check is missing a check value")
@@ -31,7 +30,7 @@ var (
 	ErrBadTCP      = fmt.Errorf("tcp checks must have an ip:port or host:port combo; the :port is required")
 )
 
-// Config for this plugin comes from a config file.
+// Config for this Services plugin comes from a config file.
 type Config struct {
 	Interval     cnfg.Duration     `toml:"interval" xml:"interval"`
 	Parallel     uint              `toml:"parallel" xml:"parallel"`
@@ -44,7 +43,7 @@ type Config struct {
 	checks       chan *Service
 	done         chan bool
 	stopChan     chan struct{}
-	triggerChan  chan *Source
+	triggerChan  chan notifiarr.EventType
 }
 
 // CheckType locks us into a few specific types of checks.
@@ -71,10 +70,10 @@ const (
 
 // Results is sent to Notifiarr.
 type Results struct {
-	Type     string         `json:"eventType"`
-	What     string         `json:"what"`
-	Interval float64        `json:"interval"`
-	Svcs     []*CheckResult `json:"services"`
+	Type     string              `json:"eventType"`
+	What     notifiarr.EventType `json:"what"`
+	Interval float64             `json:"interval"`
+	Svcs     []*CheckResult      `json:"services"`
 }
 
 // CheckResult represents the status of a service.
@@ -102,10 +101,4 @@ type Service struct {
 	since     time.Time
 	lastCheck time.Time
 	proc      *procExpect // only used for process checks.
-}
-
-// Source is used to pass a source and destination for service checks (from a trigger).
-type Source struct {
-	Name string
-	URL  string
 }

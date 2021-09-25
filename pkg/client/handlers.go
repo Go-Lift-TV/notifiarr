@@ -10,7 +10,6 @@ import (
 
 	"github.com/Notifiarr/notifiarr/pkg/bindata"
 	"github.com/Notifiarr/notifiarr/pkg/notifiarr"
-	"github.com/Notifiarr/notifiarr/pkg/services"
 	"github.com/Notifiarr/notifiarr/pkg/ui"
 	"github.com/Notifiarr/notifiarr/pkg/update"
 	"github.com/gorilla/mux"
@@ -19,7 +18,7 @@ import (
 
 // internalHandlers initializes "special" internal API paths.
 func (c *Client) internalHandlers() {
-	c.Config.HandleAPIpath("", "version", c.notifiarr.VersionHandler, "GET", "HEAD")
+	c.Config.HandleAPIpath("", "version", c.website.VersionHandler, "GET", "HEAD")
 	c.Config.HandleAPIpath("", "trigger/{trigger:[0-9a-z-]+}", c.handleTrigger, "GET")
 	c.Config.HandleAPIpath("", "trigger/{trigger:[0-9a-z-]+}/{content}", c.handleTrigger, "GET")
 
@@ -30,12 +29,12 @@ func (c *Client) internalHandlers() {
 
 		tokens := fmt.Sprintf("{token:%s|%s}", c.Config.Plex.Token, c.Config.Apps.APIKey)
 		c.Config.Router.Handle("/plex",
-			http.HandlerFunc(c.notifiarr.PlexHandler)).Methods("POST").Queries("token", tokens)
+			http.HandlerFunc(c.website.PlexHandler)).Methods("POST").Queries("token", tokens)
 
 		if c.Config.URLBase != "/" {
 			// Allow plex to use the base url too.
 			c.Config.Router.Handle(path.Join(c.Config.URLBase, "plex"),
-				http.HandlerFunc(c.notifiarr.PlexHandler)).Methods("POST").Queries("token", tokens)
+				http.HandlerFunc(c.website.PlexHandler)).Methods("POST").Queries("token", tokens)
 		}
 	}
 
@@ -116,31 +115,25 @@ func (c *Client) handleTrigger(r *http.Request) (int, interface{}) { //nolint:cy
 	trigger := mux.Vars(r)["trigger"]
 	c.Debugf("Incoming API Trigger: %s", trigger)
 
-	const apiTrigger = "apitrigger"
-
 	switch trigger {
 	case "cfsync":
-		c.notifiarr.Trigger.SyncCF(false)
+		c.website.Trigger.SyncCF(notifiarr.EventAPI)
 	case "services":
-		if c.Config.Services.Disabled {
-			return http.StatusNotImplemented, "services not enabled"
-		}
-
-		c.Config.Services.RunChecks(&services.Source{Name: apiTrigger, URL: notifiarr.ProdURL})
+		c.Config.Services.RunChecks(notifiarr.EventAPI)
 	case "sessions":
 		if !c.Config.Plex.Configured() {
 			return http.StatusNotImplemented, "sessions not enabled"
 		}
 
-		c.notifiarr.Trigger.SendPlexSessions(apiTrigger)
+		c.website.Trigger.SendPlexSessions(notifiarr.EventAPI)
 	case "stuckitems":
-		c.notifiarr.Trigger.SendFinishedQueueItems(c.notifiarr.BaseURL)
+		c.website.Trigger.SendStuckQueueItems(notifiarr.EventAPI)
 	case "dashboard":
-		c.notifiarr.Trigger.GetState()
+		c.website.Trigger.SendDashboardState(notifiarr.EventAPI)
 	case "snapshot":
-		c.notifiarr.Trigger.SendSnapshot(apiTrigger)
+		c.website.Trigger.SendSnapshot(notifiarr.EventAPI)
 	case "gaps":
-		c.notifiarr.Trigger.SendGaps(apiTrigger)
+		c.website.Trigger.SendGaps(notifiarr.EventAPI)
 	case "reload":
 		c.sighup <- &update.Signal{Text: "reload http triggered"}
 	case "notification":

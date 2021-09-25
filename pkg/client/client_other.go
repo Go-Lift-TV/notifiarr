@@ -10,6 +10,7 @@ import (
 )
 
 func (c *Client) printUpdateMessage() {}
+func (c *Client) setupMenus()         {}
 
 // AutoWatchUpdate is not used on this OS.
 func (c *Client) AutoWatchUpdate() {}

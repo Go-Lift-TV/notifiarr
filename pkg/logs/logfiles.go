@@ -102,6 +102,11 @@ func (l *Logger) postLogRotate(_, newFile string) {
 }
 
 func (l *Logger) openDebugLog() {
+	if !l.logs.Debug {
+		// in case we're reloading without debug and had it before.
+		l.DebugLog.SetOutput(io.Discard)
+	}
+
 	if !l.logs.Debug || l.logs.DebugLog == "" {
 		return
 	}

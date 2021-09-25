@@ -4,16 +4,11 @@
 package client
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/Notifiarr/notifiarr/pkg/mnd"
-	"github.com/Notifiarr/notifiarr/pkg/notifiarr"
-	"github.com/Notifiarr/notifiarr/pkg/plex"
 	"github.com/Notifiarr/notifiarr/pkg/ui"
 	"github.com/Notifiarr/notifiarr/pkg/update"
 	"github.com/hako/durafmt"
@@ -25,7 +20,8 @@ import (
 func (c *Client) toggleServer() {
 	if c.server == nil {
 		ui.Notify("Started web server") //nolint:errcheck
-		c.Print("[user requested] Starting Web Server")
+		c.Printf("[user requested] Starting Web Server, baseurl: %s, bind address: %s",
+			c.Config.URLBase, c.Config.BindAddr)
 		c.StartWebServer()
 
 		return
@@ -49,28 +45,6 @@ func (c *Client) rotateLogs() {
 			c.Errorf("Rotating Log Files: %v", err)
 		}
 	}
-}
-
-// changeKey shuts down the web server and changes the API key.
-// The server has to shut down to avoid race conditions.
-func (c *Client) changeKey() {
-	key, ok, err := ui.Entry(mnd.Title+": Configuration", "API Key", c.Config.APIKey)
-	if err != nil {
-		c.Errorf("Updating API Key: %v", err)
-	} else if !ok || key == c.Config.APIKey {
-		return
-	}
-
-	c.Print("[user requested] Updating API Key!")
-
-	if err := c.StopWebServer(); err != nil && !errors.Is(err, ErrNoServer) {
-		c.Errorf("Unable to update API Key: %v", err)
-		return
-	} else if !errors.Is(err, ErrNoServer) {
-		defer c.StartWebServer()
-	}
-
-	c.Config.APIKey = key
 }
 
 func (c *Client) checkForUpdate() {
@@ -167,19 +141,6 @@ func (c *Client) displayConfig() (s string) { //nolint: funlen,cyclop
 	return s + "\n"
 }
 
-// sendPlexSessions is triggered from a menu-bar item.
-func (c *Client) sendPlexSessions(url string) {
-	c.Printf("[user requested] Sending Plex Sessions to %s", url)
-
-	if body, err := c.notifiarr.SendMeta(notifiarr.PlexCron, url, nil, false); err != nil {
-		c.Errorf("[user requested] Sending Plex Sessions to %s: %v", url, err)
-	} else if fields := strings.Split(string(body), `"`); len(fields) > 3 { //nolint:gomnd
-		c.Printf("[user requested] Sent Plex Sessions to %s, reply: %s", url, fields[3])
-	} else {
-		c.Printf("[user requested] Sent Plex Sessions to %s", url)
-	}
-}
-
 func (c *Client) writeConfigFile() {
 	val, _, _ := ui.Entry(mnd.Title, "Enter path to write config file:", c.Flags.ConfigFile)
 
@@ -208,67 +169,4 @@ func (c *Client) menuPanic() {
 
 	defer c.Printf("User Requested Application Panic, good bye.")
 	panic("user requested panic")
-}
-
-// sendSystemSnapshot is triggered from a menu-bar item, and from --send cli arg.
-func (c *Client) sendSystemSnapshot(url string) {
-	c.Printf("[user requested] Sending System Snapshot to %s", url)
-
-	snaps, errs, debug := c.Config.Snapshot.GetSnapshot()
-	for _, err := range errs {
-		if err != nil {
-			c.Errorf("[user requested] %v", err)
-		}
-	}
-
-	for _, err := range debug {
-		if err != nil {
-			c.Errorf("[user requested] %v", err)
-		}
-	}
-
-	payload := &notifiarr.Payload{Type: notifiarr.SnapCron, Snap: snaps}
-	if _, body, err := c.notifiarr.SendData(url, payload, true); err != nil {
-		c.Errorf("[user requested] Sending System Snapshot to %s: %v", url, err)
-	} else if fields := strings.Split(string(body), `"`); len(fields) > 3 { //nolint:gomnd
-		c.Printf("[user requested] Sent System Snapshot to %s, reply: %s", url, fields[3])
-	} else {
-		c.Printf("[user requested] Sent System Snapshot to %s", url)
-	}
-}
-
-// logSnaps writes a full snapshot payload to the log file.
-func (c *Client) logSnaps() {
-	c.Printf("[user requested] Collecting Snapshot from Plex and the System (for log file).")
-
-	snaps, errs, debug := c.Config.Snapshot.GetSnapshot()
-	for _, err := range errs {
-		if err != nil {
-			c.Errorf("[user requested] %v", err)
-		}
-	}
-
-	for _, err := range debug {
-		if err != nil {
-			c.Errorf("[user requested] %v", err)
-		}
-	}
-
-	var (
-		plex *plex.Sessions
-		err  error
-	)
-
-	if c.Config.Plex.Configured() {
-		if plex, err = c.Config.Plex.GetXMLSessions(); err != nil {
-			c.Errorf("[user requested] %v", err)
-		}
-	}
-
-	b, _ := json.MarshalIndent(&notifiarr.Payload{
-		Type: notifiarr.LogLocal,
-		Snap: snaps,
-		Plex: plex,
-	}, "", "  ")
-	c.Printf("[user requested] Snapshot Data:\n%s", string(b))
 }

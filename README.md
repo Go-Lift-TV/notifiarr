@@ -137,7 +137,6 @@ log_file|`DN_LOG_FILE`|None by default. Optionally provide a file path to save a
 http_log|`DN_HTTP_LOG`|None by default. Provide a file path to save HTTP request logs|
 log_file_mb|`DN_LOG_FILE_MB`|`100` / Max size of log files in megabytes|
 log_files|`DN_LOG_FILES`|`10` / Log files to keep after rotating. `0` disables rotation|
-send_dash|`DN_SEND_DASH`|`0` / How often to send dashboard state. `0` disables, `30m` = minimum|
 timeout|`DN_TIMEOUT`|`60s` / Global API Timeouts (all apps default)|
 
 #### Lidarr
@@ -155,7 +154,6 @@ lidarr.api_key|`DN_LIDARR_0_API_KEY`|No Default. Provide URL and API key if you 
 radarr.name|`DN_RADARR_0_NAME`|No Default. Setting a name enabled service checks.|
 radarr.url|`DN_RADARR_0_URL`|No Default. Something like: `http://localhost:7878`|
 radarr.api_key|`DN_RADARR_0_API_KEY`|No Default. Provide URL and API key if you use Radarr|
-radarr.disable_cf|`DN_RADARR_0_DISABLE_CF`|`false` / Setting true disables custom format sync.|
 
 #### Readarr
 
@@ -172,7 +170,6 @@ readarr.api_key|`DN_READARR_0_API_KEY`|No Default. Provide URL and API key if yo
 sonarr.name|`DN_SONARR_0_NAME`|No Default. Setting a name enabled service checks.|
 sonarr.url|`DN_SONARR_0_URL`|No Default. Something like: `http://localhost:8989`|
 sonarr.api_key|`DN_SONARR_0_API_KEY`|No Default. Provide URL and API key if you use Sonarr|
-sonarr.disable_cf|`DN_SONARR_0_DISABLE_CF`|`false` / Setting true disables release profile sync.|
 
 #### Plex
 
@@ -230,20 +227,7 @@ notifiarr ALL=(root) NOPASSWD:/usr/sbin/MegaCli64 -LDInfo -Lall -aALL
 
 ###### Snapshot Configuration
 
-|Config Name|Variable Name|Note|
-|---|---|---|
-snapshot.interval|`DN_SNAPSHOT_INTERVAL`|`30m`, How often to send a snapshot (cron)|
-snapshot.timeout|`DN_SNAPSHOT_TIMEOUT`|`10s`, How long to wait for a reply from Notifiarr.com|
-snapshot.monitor_raid|`DN_SNAPSHOT_MONITOR_RAID`|Set `true` to report `mdadm` and `megacli`|
-snapshot.monitor_drives|`DN_SNAPSHOT_MONITOR_DRIVES`|Set `true` to report SMART on drives|
-snapshot.monitor_space|`DN_SNAPSHOT_MONITOR_SPACE`|Set `true` to report drive volume usage|
-snapshot.monitor_uptime|`DN_SNAPSHOT_MONITOR_UPTIME`|Set `true` to report Local Host Information|
-snapshot.monitor_cpuMemory|`DN_SNAPSHOT_MONITOR_CPUMEMORY`|Set `true` to report CPU and Memory usage|
-snapshot.monitor_cpuTemp|`DN_SNAPSHOT_MONITOR_CPUTEMP`|Set `true` to report CPU temperatures|
-snapshot.zfs_pools|`DN_SNAPSHOT_ZFS_POOL_0`|Provide a list of zfs pools to monitor, ie. `data`|
-snapshot.use_sudo|`DN_SNAPSHOT_USE_SUDO`|Set `true` if `monitor_drives=true` or you use `megacli` on Linux|
-
-- _Notes: Not all systems can report CPU temperatures._
+Snapshot configuration is now found on the [website](https://notifiarr.com). - 9/14/2021
 
 #### Service Checks
 

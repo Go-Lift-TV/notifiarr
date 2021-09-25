@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"github.com/shirou/gopsutil/v3/host"
 )
 
 // SynologyConf is the path to the syno config file.
@@ -28,14 +30,14 @@ type Synology struct {
 */
 
 // GetSynology checks if the app is running on a Synology, and gets system info.
-func (s *Snapshot) GetSynology(run bool) error { //nolint:cyclop
-	if !run || !s.synology {
-		return nil
+func GetSynology(run bool) (*Synology, error) { //nolint:cyclop
+	if !run {
+		return nil, nil
 	}
 
 	file, err := os.Open(SynologyConf)
 	if err != nil {
-		return fmt.Errorf("opening synology conf: %w", err)
+		return nil, fmt.Errorf("opening synology conf: %w", err)
 	}
 	defer file.Close()
 
@@ -50,7 +52,7 @@ func (s *Snapshot) GetSynology(run bool) error { //nolint:cyclop
 		if errors.Is(err, io.EOF) {
 			break
 		} else if err != nil {
-			return fmt.Errorf("reading synology conf: %w", err)
+			return nil, fmt.Errorf("reading synology conf: %w", err)
 		}
 
 		lsplit := strings.Split(line, "=")
@@ -72,21 +74,19 @@ func (s *Snapshot) GetSynology(run bool) error { //nolint:cyclop
 		}
 	}
 
-	s.setSynology(syn)
-
-	return nil
+	return syn, nil
 }
 
-func (s *Snapshot) setSynology(syn *Synology) {
-	if s.System.InfoStat.Platform == "" && syn.Vendor != "" {
-		s.System.InfoStat.Platform = syn.Vendor
+func (s *Synology) SetInfo(hi *host.InfoStat) {
+	if hi.Platform == "" && s.Vendor != "" {
+		hi.Platform = s.Vendor
 	}
 
-	if s.System.InfoStat.PlatformFamily == "" && syn.Manager != "" {
-		s.System.InfoStat.PlatformFamily = syn.Manager + " " + syn.Model
+	if hi.PlatformFamily == "" && s.Manager != "" {
+		hi.PlatformFamily = s.Manager + " " + s.Model
 	}
 
-	if s.System.InfoStat.PlatformVersion == "" && syn.Version != "" {
-		s.System.InfoStat.PlatformVersion = syn.Version + "-" + syn.Build
+	if hi.PlatformVersion == "" && s.Version != "" {
+		hi.PlatformVersion = s.Version + "-" + s.Build
 	}
 }

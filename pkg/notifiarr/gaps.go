@@ -2,83 +2,71 @@ package notifiarr
 
 import (
 	"fmt"
-	"net/http"
 
+	"github.com/Notifiarr/notifiarr/pkg/apps"
+	"golift.io/cnfg"
 	"golift.io/starr/radarr"
 )
 
 /* Gaps allows filling gaps in Radarr collections. */
 
-type gaps struct {
-	Instances []int
-	Interval  int
+// gapsConfig is the configuration returned from the notifiarr website.
+type gapsConfig struct {
+	Instances intList       `json:"instances"`
+	Interval  cnfg.Duration `json:"interval"`
 }
 
-func (t *Triggers) SendGaps(source string) {
+func (t *Triggers) SendGaps(event EventType) {
 	if t.stop == nil {
 		return
 	}
 
-	t.gaps <- source
+	t.gaps.C <- event
 }
 
-func (c *Config) sendGaps(source string) {
-	c.Printf("Sending Radarr Collections Gaps to Notifiarr: %s", source)
-
-	ci, err := c.GetClientInfo()
-	if err != nil {
-		c.Errorf("Cannot send Radarr Collection Gaps: %v", err)
-		return
-	} else if len(ci.Message.Gaps.Instances) == 0 {
+func (c *Config) sendGaps(event EventType) {
+	if c.ClientInfo == nil || len(c.Actions.Gaps.Instances) == 0 || len(c.Apps.Radarr) == 0 {
+		c.Errorf("[%s requested] Cannot send Radarr Collection Gaps: instances or configured Radarrs (%d) are zero.",
+			event, len(c.Apps.Radarr))
 		return
 	}
 
 	for i, r := range c.Apps.Radarr {
-		if r.DisableCF || r.URL == "" || r.APIKey == "" || !ci.Message.Gaps.Has(i+1) {
+		instance := i + 1
+		if r.URL == "" || r.APIKey == "" || !c.Actions.Gaps.Instances.Has(instance) {
 			continue
 		}
 
-		if err := c.sendInstanceGaps(i + 1); err != nil {
-			c.Errorf("Radarr Collection Gaps request for '%d:%s' failed: %v", i+1, r.URL, err)
+		if resp, err := c.sendInstanceGaps(event, instance, r); err != nil {
+			c.Errorf("[%s requested] Radarr Collection Gaps request for '%d:%s' failed: %v", event, instance, r.URL, err)
 		} else {
-			c.Printf("Sent Collection Gaps to Notifiarr for Radarr: %d:%s", i+1, r.URL)
+			c.Printf("[%s requested] Sent Collection Gaps to Notifiarr for Radarr: %d:%s. "+
+				"Website took %s and replied with: %s, %s",
+				event, instance, r.URL, resp.Message.Elapsed, resp.Status, resp.Message.Response)
 		}
 	}
 }
 
-func (c *Config) sendInstanceGaps(i int) error {
+func (c *Config) sendInstanceGaps(event EventType, instance int, app *apps.RadarrConfig) (*Response, error) {
 	type radarrGapsPayload struct {
 		Instance int             `json:"instance"`
 		Name     string          `json:"name"`
 		Movies   []*radarr.Movie `json:"movies"`
 	}
 
-	movies, err := c.Apps.Radarr[i].GetMovie(0)
+	movies, err := app.GetMovie(0)
 	if err != nil {
-		return fmt.Errorf("getting movies: %w", err)
+		return nil, fmt.Errorf("getting movies: %w", err)
 	}
 
-	//nolint:bodyclose // already closed
-	resp, _, err := c.SendData(c.BaseURL+GapsRoute+"?app=radarr", &radarrGapsPayload{
+	resp, err := c.SendData(GapsRoute.Path(event, "app=radarr"), &radarrGapsPayload{
 		Movies:   movies,
-		Name:     c.Apps.Radarr[i].Name,
-		Instance: i,
+		Name:     app.Name,
+		Instance: instance,
 	}, false)
 	if err != nil {
-		return fmt.Errorf("sending collection gaps: %w", err)
-	} else if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%w: %s", ErrNon200, resp.Status)
+		return nil, fmt.Errorf("sending collection gaps: %w", err)
 	}
 
-	return nil
-}
-
-func (g gaps) Has(instance int) bool {
-	for _, i := range g.Instances {
-		if instance == i {
-			return true
-		}
-	}
-
-	return false
+	return resp, nil
 }

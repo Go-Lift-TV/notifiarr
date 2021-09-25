@@ -7,14 +7,9 @@
 package notifiarr
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io/ioutil"
-	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +18,7 @@ import (
 	"github.com/Notifiarr/notifiarr/pkg/logs"
 	"github.com/Notifiarr/notifiarr/pkg/plex"
 	"github.com/Notifiarr/notifiarr/pkg/snapshot"
+	"github.com/shirou/gopsutil/v3/host"
 )
 
 // Errors returned by this library.
@@ -31,27 +27,102 @@ var (
 	ErrInvalidResponse = fmt.Errorf("invalid response")
 )
 
-// Notifiarr URLs.
+// Route is used to give us methods on our route paths.
+type Route string
+
+// Notifiarr URLs. Data sent to these URLs:
+/*
+api/v1/notification/plex?event=...
+  api (was plexcron)
+  user (was plexcron)
+  cron (was plexcron)
+  webhook (was plexhook)
+  movie
+  episode
+
+api/v1/notification/services?event=...
+  api
+  user
+  cron
+  start (only fires on startup)
+
+api/v1/notification/snapshot?event=...
+  api
+  user
+  cron
+
+api/v1/notification/dashboard?event=... (requires interval from website/client endpoint)
+  api
+  user
+  cron
+
+api/v1/notification/stuck?event=...
+  api
+  user
+  cron
+
+api/v1/user/gaps?app=radarr&event=...
+  api
+  user
+  cron
+
+api/v2/user/client?event=start
+  see description https://github.com/Notifiarr/notifiarr/pull/115
+
+api/v1/user/trash?app=...
+  radarr
+  sonarr
+*/
 const (
-	BaseURL     = "https://notifiarr.com"
-	ProdURL     = BaseURL + "/notifier.php"
-	TestURL     = BaseURL + "/notifierTest.php"
-	DevBaseURL  = "http://dev.notifiarr.com"
-	DevURL      = DevBaseURL + "/notifier.php"
-	ClientRoute = "/api/v1/user/client"
-	// CFSyncRoute is the webserver route to send sync requests to.
-	CFSyncRoute = "/api/v1/user/trash"
-	DashRoute   = "/api/v1/user/dashboard"
-	GapsRoute   = "/api/v1/user/gaps"
+	BaseURL           = "https://notifiarr.com"
+	DevBaseURL        = "https://dev.notifiarr.com"
+	userRoute1  Route = "/api/v1/user"
+	userRoute2  Route = "/api/v2/user"
+	ClientRoute Route = userRoute2 + "/client"
+	CFSyncRoute Route = userRoute1 + "/trash"
+	GapsRoute   Route = userRoute1 + "/gaps"
+	notifiRoute Route = "/api/v1/notification"
+	DashRoute   Route = notifiRoute + "/dashboard"
+	StuckRoute  Route = notifiRoute + "/stuck"
+	PlexRoute   Route = notifiRoute + "/plex"
+	SnapRoute   Route = notifiRoute + "/snapshot"
+	SvcRoute    Route = notifiRoute + "/services"
 )
 
-// These are used as 'source' values in json payloads sent to the webserver.
 const (
-	PlexCron = "plexcron"
-	SnapCron = "snapcron"
-	PlexHook = "plexhook"
-	LogLocal = "loglocal"
+	ModeDev  = "development"
+	ModeProd = "production"
 )
+
+// EventType identifies the type of event that sent a paylaod to notifiarr.
+type EventType string
+
+// These are all our known event types.
+const (
+	EventCron    EventType = "cron"
+	EventUser    EventType = "user"
+	EventAPI     EventType = "api"
+	EventHook    EventType = "webhook"
+	EventStart   EventType = "start"
+	EventMovie   EventType = "movie"
+	EventEpisode EventType = "episode"
+	EventPoll    EventType = "poll"
+	EventReload  EventType = "reload"
+)
+
+// Path adds parameter to a route path and turns it into a string.
+func (r Route) Path(event EventType, params ...string) string {
+	switch {
+	case len(params) == 0 && event == "":
+		return string(r)
+	case len(params) == 0:
+		return string(r) + "?event=" + string(event)
+	case event == "":
+		return string(r) + "?" + strings.Join(params, "&")
+	default:
+		return string(r) + "?" + strings.Join(append(params, "event="+string(event)), "&")
+	}
+}
 
 const (
 	// DefaultRetries is the number of times to attempt a request to notifiarr.com.
@@ -66,7 +137,6 @@ const success = "success"
 
 // Payload is the outbound payload structure that is sent to Notifiarr for Plex and system snapshot data.
 type Payload struct {
-	Type string               `json:"eventType"`
 	Plex *plex.Sessions       `json:"plex,omitempty"`
 	Snap *snapshot.Snapshot   `json:"snapshot,omitempty"`
 	Load *plexIncomingWebhook `json:"payload,omitempty"`
@@ -74,58 +144,55 @@ type Payload struct {
 
 // Config is the input data needed to send payloads to notifiarr.
 type Config struct {
-	Apps         *apps.Apps       // has API key
-	Plex         *plex.Server     // plex sessions
-	Snap         *snapshot.Config // system snapshot data
-	DashDur      time.Duration
-	Retries      int
-	URL          string
-	BaseURL      string
-	Timeout      time.Duration
-	Trigger      Triggers
+	Apps     *apps.Apps       // has API key
+	Plex     *plex.Server     // plex sessions
+	Snap     *snapshot.Config // system snapshot data
+	Services *ServiceConfig
+	Retries  int
+	BaseURL  string
+	Timeout  time.Duration
+	Trigger  Triggers
+	MaxBody  int
+	Sighup   chan os.Signal
+
 	*logs.Logger // log file writer
 	extras
 }
 
 type extras struct {
-	clientInfo *ClientInfo
-	client     *httpClient
-	radarrCF   map[int]*cfMapIDpayload
-	sonarrRP   map[int]*cfMapIDpayload
-	plexTimer  *Timer
+	ciMutex sync.Mutex
+	*ClientInfo
+	client    *httpClient
+	radarrCF  map[int]*cfMapIDpayload
+	sonarrRP  map[int]*cfMapIDpayload
+	plexTimer *Timer
+	hostInfo  *host.InfoStat
 }
 
 // Triggers allow trigger actions in the timer routine.
 type Triggers struct {
-	stop   chan struct{}      // Triggered by calling Stop()
-	syncCF chan chan struct{} // Sync Radarr CF and Sonarr RP
-	gaps   chan string        // Send Radarr Collection Gaps
-	stuck  chan string        // Stuck Items
-	plex   chan string        // Send Plex Sessions
-	state  chan struct{}      // Dashboard State
-	snap   chan string        // Snapshot
-	sess   chan time.Time     // Return Plex Sessions
-	sessr  chan *holder       // Session Return Channel
+	stop  *action        // Triggered by calling Stop()
+	sync  *action        // Sync Radarr CF and Sonarr RP
+	gaps  *action        // Send Radarr Collection Gaps
+	stuck *action        // Stuck Items
+	plex  *action        // Send Plex Sessions
+	dash  *action        // Dashboard State
+	snap  *action        // Snapshot
+	sess  chan time.Time // Return Plex Sessions
+	sessr chan *holder   // Session Return Channel
 }
 
 // Start (and log) snapshot and plex cron jobs if they're configured.
-func (c *Config) Start(mode string) {
-	if c.Trigger.stop != nil {
-		panic("notifiarr timers cannot run twice")
-	}
-
+func (c *Config) Setup(mode string) string {
 	switch strings.ToLower(mode) {
 	default:
-		fallthrough
-	case "prod", "production":
-		c.URL = ProdURL
 		c.BaseURL = BaseURL
-	case "test", "testing":
-		c.URL = TestURL
+	case "prod", ModeProd:
 		c.BaseURL = BaseURL
-	case "dev", "devel", "development":
-		c.URL = DevURL
+		mode = ModeProd
+	case "dev", "devel", ModeDev, "test", "testing":
 		c.BaseURL = DevBaseURL
+		mode = ModeDev
 	}
 
 	if c.Retries < 0 {
@@ -134,285 +201,81 @@ func (c *Config) Start(mode string) {
 		c.Retries = DefaultRetries
 	}
 
+	if c.extras.client == nil {
+		c.extras.client = &httpClient{
+			Retries: c.Retries,
+			Logger:  c.ErrorLog,
+			Client:  &http.Client{},
+		}
+	}
+
+	return mode
+}
+
+// Start runs the timers.
+func (c *Config) Start() {
+	if c.Trigger.stop != nil {
+		panic("notifiarr timers cannot run twice")
+	}
+
+	c.Trigger.stuck = &action{
+		Fn:  c.sendStuckQueueItems,
+		Msg: "Checking app queues and sending stuck items.",
+		C:   make(chan EventType, 1),
+		T:   time.NewTicker(stuckDur),
+	}
+	c.Trigger.plex = &action{
+		Fn:  c.sendPlexSessions,
+		Msg: "Gathering and sending Plex Sessions.",
+		C:   make(chan EventType, 1),
+	}
+	c.Trigger.gaps = &action{
+		Fn:  c.sendGaps,
+		Msg: "Sending Radarr Collection Gaps.",
+		C:   make(chan EventType, 1),
+	}
+	c.Trigger.sync = &action{
+		Fn:  c.syncCF,
+		Msg: "Starting Custom Formats and Quality Profiles Sync for Radarr and Sonarr.",
+		C:   make(chan EventType, 1),
+	}
+	c.Trigger.dash = &action{
+		Fn:  c.sendDashboardState,
+		Msg: "Initiating State Collection for Dashboard.",
+		C:   make(chan EventType, 1),
+	}
+	c.Trigger.snap = &action{
+		Fn:  c.sendSnapshot,
+		Msg: "Gathering and sending System Snapshot.",
+		C:   make(chan EventType, 1),
+	}
+	c.Trigger.stop = &action{
+		Msg: "Stop Channel is used for reloads and must not have a function.",
+		C:   make(chan EventType),
+	}
+	c.Trigger.sess = make(chan time.Time, 1)
 	c.extras.radarrCF = make(map[int]*cfMapIDpayload)
 	c.extras.sonarrRP = make(map[int]*cfMapIDpayload)
 	c.extras.plexTimer = &Timer{}
-	c.extras.client = &httpClient{
-		Retries: c.Retries,
-		Logger:  c.ErrorLog,
-		Client:  &http.Client{},
-	}
-	c.Trigger.syncCF = make(chan chan struct{})
-	c.Trigger.stuck = make(chan string)
-	c.Trigger.plex = make(chan string)
-	c.Trigger.state = make(chan struct{})
-	c.Trigger.snap = make(chan string)
-	c.Trigger.sess = make(chan time.Time)
-	c.Trigger.gaps = make(chan string)
 
 	go c.runSessionHolder()
 	c.startTimers()
 }
 
-// Stop snapshot and plex cron jobs.
-func (c *Config) Stop() {
-	if c != nil && c.Trigger.stop != nil {
-		c.Trigger.stop <- struct{}{}
-		close(c.Trigger.syncCF)
-		close(c.Trigger.stuck)
-		close(c.Trigger.plex)
-		close(c.Trigger.state)
-		close(c.Trigger.snap)
-		close(c.Trigger.gaps)
-
-		defer close(c.Trigger.sess)
-		c.Trigger.sess = nil
-	}
-}
-
-// SendMeta is kicked off by the webserver in go routine.
-// It's also called by the plex cron (with webhook set to nil).
-// This runs after Plex drops off a webhook telling us someone did something.
-// This gathers cpu/ram, and waits 10 seconds, then grabs plex sessions.
-// It's all POSTed to notifiarr. May be used with a nil Webhook.
-func (c *Config) SendMeta(eventType, url string, hook *plexIncomingWebhook, wait bool) ([]byte, error) {
-	extra := time.Second
-	if wait {
-		extra = plex.WaitTime
+// Stop all internal cron timers and Triggers.
+func (c *Config) Stop(event EventType) {
+	if c == nil {
+		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), extra+c.Snap.Timeout.Duration)
-	defer cancel()
+	c.Print("==> Stopping Notifiarr Timers.")
 
-	var (
-		payload = &Payload{
-			Type: eventType,
-			Load: hook,
-			Plex: &plex.Sessions{
-				Name:       c.Plex.Name,
-				AccountMap: strings.Split(c.Plex.AccountMap, "|"),
-			},
-		}
-		wg sync.WaitGroup
-	)
-
-	rep := make(chan error)
-	defer close(rep)
-
-	go func() {
-		for err := range rep {
-			if err != nil {
-				c.Errorf("Building Metadata: %v", err)
-			}
-		}
-	}()
-
-	wg.Add(1)
-
-	go func() {
-		payload.Snap = c.GetMetaSnap(ctx)
-		wg.Done() // nolint:wsl
-	}()
-
-	if !wait || !c.Plex.NoActivity {
-		var err error
-		if payload.Plex, err = c.GetSessions(wait); err != nil {
-			rep <- fmt.Errorf("getting sessions: %w", err)
-		}
+	if c.Trigger.stop == nil {
+		c.Error("==> Notifiarr Timers cannot be stopped: not running!")
+		return
 	}
 
-	wg.Wait()
-
-	_, e, err := c.SendData(url, payload, true) //nolint:bodyclose // already closed
-
-	return e, err
-}
-
-// GetMetaSnap grabs some basic system info: cpu, memory, username.
-func (c *Config) GetMetaSnap(ctx context.Context) *snapshot.Snapshot {
-	var (
-		snap = &snapshot.Snapshot{}
-		wg   sync.WaitGroup
-	)
-
-	rep := make(chan error)
-	defer close(rep)
-
-	go func() {
-		for err := range rep {
-			if err != nil { // maybe move this out of this method?
-				c.Errorf("Building Metadata: %v", err)
-			}
-		}
-	}()
-
-	wg.Add(3) //nolint: gomnd,wsl
-	go func() {
-		rep <- snap.GetCPUSample(ctx, true)
-		wg.Done() //nolint:wsl
-	}()
-	go func() {
-		rep <- snap.GetMemoryUsage(ctx, true)
-		wg.Done() //nolint:wsl
-	}()
-	go func() {
-		for _, err := range snap.GetLocalData(ctx, false) {
-			rep <- err
-		}
-		wg.Done() //nolint:wsl
-	}()
-
-	wg.Wait()
-
-	return snap
-}
-
-// SendJSON posts a JSON payload to a URL. Returns the response body or an error.
-func (c *Config) SendJSON(url string, data []byte) (*http.Response, []byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), c.Timeout)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(data))
-	if err != nil {
-		return nil, nil, fmt.Errorf("creating http request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-API-Key", c.Apps.APIKey)
-
-	start := time.Now()
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		c.Debugf("Sent JSON Payload to %s in %s:\n%s\nResponse (0): %s",
-			url, time.Since(start).Round(time.Microsecond), string(data), err)
-		return nil, nil, fmt.Errorf("making http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-
-	defer func() {
-		headers := ""
-
-		for k, vs := range resp.Header {
-			for _, v := range vs {
-				headers += k + ": " + v + "\n"
-			}
-		}
-
-		c.Debugf("Sent JSON Payload to %s in %s:\n%s\nResponse (%s):\n%s\n%s",
-			url, time.Since(start).Round(time.Microsecond), string(data), resp.Status, headers, string(body))
-	}()
-
-	if err != nil {
-		return resp, body, fmt.Errorf("reading http response body: %w", err)
-	}
-
-	return resp, body, nil
-}
-
-func (c *Config) GetData(url string) (*http.Response, []byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), c.Timeout)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, nil, fmt.Errorf("creating http request: %w", err)
-	}
-
-	req.Header.Set("X-API-Key", c.Apps.APIKey)
-
-	start := time.Now()
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, nil, fmt.Errorf("making http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-
-	defer func() {
-		headers := ""
-
-		for k, vs := range resp.Header {
-			for _, v := range vs {
-				headers += k + ": " + v + "\n"
-			}
-		}
-
-		c.Debugf("Sent GET Request to %s in %s, Response (%s):\n%s\n%s",
-			url, time.Since(start).Round(time.Microsecond), resp.Status, headers, string(body))
-	}()
-
-	if err != nil {
-		return resp, body, fmt.Errorf("reading http response body: %w", err)
-	}
-
-	return resp, body, nil
-}
-
-// SendData sends raw data to a notifiarr URL as JSON.
-func (c *Config) SendData(url string, payload interface{}, pretty bool) (*http.Response, []byte, error) {
-	var (
-		post []byte
-		err  error
-	)
-
-	if pretty {
-		post, err = json.MarshalIndent(payload, "", " ")
-	} else {
-		post, err = json.Marshal(payload)
-	}
-
-	if err != nil {
-		return nil, nil, fmt.Errorf("encoding data to JSON (report this bug please): %w", err)
-	}
-
-	return c.SendJSON(url, post)
-}
-
-// httpClient is our custom http client to wrap Do and provide retries.
-type httpClient struct {
-	Retries int
-	*log.Logger
-	*http.Client
-}
-
-// Do performs an http Request with retries and logging!
-func (h *httpClient) Do(req *http.Request) (*http.Response, error) {
-	deadline, ok := req.Context().Deadline()
-	if !ok {
-		deadline = time.Now().Add(h.Timeout)
-	}
-
-	timeout := time.Until(deadline).Round(time.Millisecond)
-
-	for i := 0; ; i++ {
-		resp, err := h.Client.Do(req)
-		if err == nil && resp.StatusCode < http.StatusInternalServerError {
-			return resp, nil
-		} else if err == nil { // resp.StatusCode is 500 or higher, make that en error.
-			body, _ := ioutil.ReadAll(resp.Body) // must read the entire body when err == nil
-			resp.Body.Close()                    // do not defer, because we're in a loop.
-			// shoehorn a non-200 error into the empty http error.
-			err = fmt.Errorf("%w: %s: %s", ErrNon200, resp.Status, string(body))
-		}
-
-		switch {
-		case errors.Is(err, context.DeadlineExceeded):
-			if i == 0 {
-				return nil, fmt.Errorf("notifiarr.com req timed out after %s: %w", timeout, err)
-			}
-
-			return nil, fmt.Errorf("[%d/%d] notifiarr.com reqs timed out after %s, giving up: %w",
-				i+1, h.Retries+1, timeout, err)
-		case i == h.Retries:
-			return nil, fmt.Errorf("[%d/%d] notifiarr.com req failed: %w", i+1, h.Retries+1, err)
-		default:
-			h.Printf("[%d/%d] Request to Notifiarr.com failed, retrying in %s, error: %v", i+1, h.Retries+1, RetryDelay, err)
-			time.Sleep(RetryDelay)
-		}
-	}
+	c.Trigger.stop.C <- event
+	defer close(c.Trigger.sess)
+	c.Trigger.sess = nil
 }

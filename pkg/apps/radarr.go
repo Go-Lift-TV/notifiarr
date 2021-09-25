@@ -44,7 +44,6 @@ func (a *Apps) radarrHandlers() {
 type RadarrConfig struct {
 	Name      string        `toml:"name" xml:"name"`
 	Interval  cnfg.Duration `toml:"interval" xml:"interval"`
-	DisableCF bool          `toml:"disable_cf" xml:"disable_cf"`
 	StuckItem bool          `toml:"stuck_items" xml:"stuck_items"`
 	CheckQ    *uint         `toml:"check_q" xml:"check_q"`
 	*starr.Config
