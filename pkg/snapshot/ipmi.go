@@ -64,7 +64,7 @@ func (s *Snapshot) GetIPMI(ctx context.Context, run, useSudo bool) error {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, tool, args...)
-	sysCallSettings(cmd)
+	SysCallSettings(cmd)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

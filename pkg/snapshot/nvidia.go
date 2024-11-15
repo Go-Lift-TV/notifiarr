@@ -74,7 +74,7 @@ func (s *Snapshot) GetNvidia(ctx context.Context, config *NvidiaConfig) error {
 		"memory.total,"+ // 7
 		"memory.free", // 8
 	)
-	sysCallSettings(cmd)
+	SysCallSettings(cmd)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

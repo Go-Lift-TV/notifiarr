@@ -279,9 +279,9 @@ func (s *Service) checkTCP() *result {
 	return res
 }
 
-func (s *Service) Due() bool {
+func (s *Service) Due(now time.Time) bool {
 	s.svc.RLock()
 	defer s.svc.RUnlock()
 
-	return time.Since(s.svc.LastCheck) > s.Interval.Duration
+	return now.Sub(s.svc.LastCheck) > s.Interval.Duration
 }

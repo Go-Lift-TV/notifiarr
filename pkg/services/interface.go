@@ -3,6 +3,7 @@ package services
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/Notifiarr/notifiarr/pkg/website"
 )
@@ -44,8 +45,8 @@ func (c *Config) RunCheck(source website.EventType, name string) error {
 }
 
 // runCheck runs a service check if it is due. Passing force runs it regardless.
-func (c *Config) runCheck(svc *Service, force bool) bool {
-	if force || svc.Due() {
+func (c *Config) runCheck(svc *Service, force bool, now time.Time) bool {
+	if force || svc.Due(now) {
 		c.checks <- svc
 		return <-c.done
 	}
@@ -54,23 +55,27 @@ func (c *Config) runCheck(svc *Service, force bool) bool {
 }
 
 // runChecks runs checks that are due. Passing true, runs them even if they're not due.
-func (c *Config) runChecks(forceAll bool) {
+// Returns true if any service state changed.
+func (c *Config) runChecks(forceAll bool, now time.Time) bool {
 	if c.checks == nil || c.done == nil {
-		return
+		return false
 	}
 
 	count := 0
+	changes := false
 
 	for s := range c.services {
-		if forceAll || c.services[s].Due() {
+		if forceAll || c.services[s].Due(now) {
 			count++
 			c.checks <- c.services[s]
 		}
 	}
 
 	for ; count > 0; count-- {
-		<-c.done
+		changes = <-c.done || changes
 	}
+
+	return changes
 }
 
 // GetResults creates a copy of all the results and returns them.

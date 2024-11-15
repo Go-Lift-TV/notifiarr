@@ -52,7 +52,7 @@ function testInstance(from, instanceType, index)
                 toast('Web Server Error',
                     'Notifiarr client appears to be down! Hard refresh recommended.', 'error', 30000);
             } else {
-                toast(instanceType+' Check Error', error+': '+response.responseText, 'error', 15000);
+                toast(instanceType+' Check Error', response.responseText, 'error', 15000);
             }
         }
     });

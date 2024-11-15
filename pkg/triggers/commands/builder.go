@@ -50,6 +50,9 @@ func (c *cmdBuilder) getCmd(ctx context.Context) (*exec.Cmd, error) {
 		cmd = exec.CommandContext(ctx, builtArgs[0], builtArgs[1:]...)
 	}
 
+	// This call hides the cmd window on Windows.
+	// snapshot.SysCallSettings(cmd)
+
 	return cmd, nil
 }
 

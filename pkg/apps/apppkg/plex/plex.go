@@ -96,7 +96,7 @@ func (s *Server) reqPlexURL(
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return body, ErrBadStatus
+		return body, fmt.Errorf("%w: %s", ErrBadStatus, resp.Status)
 	}
 
 	return body, nil

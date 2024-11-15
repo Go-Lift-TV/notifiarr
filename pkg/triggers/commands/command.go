@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"strings"
 	"time"
@@ -181,8 +182,14 @@ func (c *Command) exec(ctx context.Context, input *common.ActionInput) (*bytes.B
 	}
 
 	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
+
+	if cmd.Stdout != nil {
+		cmd.Stdout = io.MultiWriter(&out, cmd.Stdout)
+	}
+
+	if cmd.Stderr != nil {
+		cmd.Stderr = io.MultiWriter(&out, cmd.Stderr)
+	}
 
 	start := time.Now()
 	if err := cmd.Run(); err != nil {

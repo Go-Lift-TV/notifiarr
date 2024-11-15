@@ -14,6 +14,7 @@ import (
 	"github.com/Notifiarr/notifiarr/pkg/mnd"
 	"github.com/Notifiarr/notifiarr/pkg/website"
 	"github.com/gorilla/mux"
+	"golift.io/version"
 )
 
 func (c *Config) Setup(services []*Service) error {
@@ -184,17 +185,13 @@ func (c *Config) runServiceChecker() { //nolint:cyclop
 		c.stopChan <- struct{}{} // signal we're finished.
 	}()
 
-	ticker := &time.Ticker{C: make(<-chan time.Time)}
-	second := &time.Ticker{C: make(<-chan time.Time)}
+	checker := &time.Ticker{C: make(<-chan time.Time)}
 
 	if !c.Disabled {
-		ticker = time.NewTicker(c.Interval.Duration)
-		defer ticker.Stop()
+		checker = time.NewTicker(time.Second)
+		defer checker.Stop()
 
-		second = time.NewTicker(10 * time.Second) //nolint:mnd
-		defer second.Stop()
-
-		c.runChecks(true)
+		c.runChecks(true, version.Started)
 		c.SendResults(&Results{What: website.EventStart, Svcs: c.GetResults()})
 	}
 
@@ -207,15 +204,16 @@ func (c *Config) runServiceChecker() { //nolint:cyclop
 			}
 
 			return
-		case <-ticker.C:
-			c.SendResults(&Results{What: website.EventCron, Svcs: c.GetResults()})
 		case event := <-c.checkChan:
 			c.Printf("Running service check '%s' via event: %s, buffer: %d/%d",
 				event.Service.Name, event.Source, len(c.checks), cap(c.checks))
-			c.runCheck(event.Service, true)
+
+			if c.runCheck(event.Service, true, time.Now()) {
+				c.SendResults(&Results{What: event.Source, Svcs: c.GetResults()})
+			}
 		case event := <-c.triggerChan:
 			c.Debugf("Running all service checks via event: %s, buffer: %d/%d", event, len(c.checks), cap(c.checks))
-			c.runChecks(true)
+			c.runChecks(true, time.Now())
 
 			if event != "log" {
 				c.SendResults(&Results{What: event, Svcs: c.GetResults()})
@@ -229,8 +227,10 @@ func (c *Config) runServiceChecker() { //nolint:cyclop
 			}
 
 			c.Debug("Service Checks Payload (log only):", string(data))
-		case <-second.C:
-			c.runChecks(false)
+		case now := <-checker.C:
+			if c.runChecks(false, now) {
+				c.SendResults(&Results{What: website.EventCron, Svcs: c.GetResults()})
+			}
 		}
 	}
 }

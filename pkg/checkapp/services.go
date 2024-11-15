@@ -14,7 +14,7 @@ func testTCP(ctx context.Context, svc *services.Service) (string, int) {
 
 	res := svc.CheckOnly(ctx)
 	if res.State != services.StateOK {
-		return res.State.String() + " " + res.Output.String(), http.StatusBadGateway
+		return res.State.String() + " " + res.Output.String(), http.StatusFailedDependency
 	}
 
 	return "TCP Port is OPEN and reachable: " + res.Output.String(), http.StatusOK
@@ -27,7 +27,7 @@ func testHTTP(ctx context.Context, svc *services.Service) (string, int) {
 
 	res := svc.CheckOnly(ctx)
 	if res.State != services.StateOK {
-		return res.State.String() + " " + res.Output.String(), http.StatusBadGateway
+		return res.State.String() + " " + res.Output.String(), http.StatusFailedDependency
 	}
 
 	// add test
@@ -41,7 +41,7 @@ func testProcess(ctx context.Context, svc *services.Service) (string, int) {
 
 	res := svc.CheckOnly(ctx)
 	if res.State != services.StateOK {
-		return res.State.String() + " " + res.Output.String(), http.StatusBadGateway
+		return res.State.String() + " " + res.Output.String(), http.StatusFailedDependency
 	}
 
 	return "Process Tested OK: " + res.Output.String(), http.StatusOK
@@ -54,7 +54,7 @@ func testPing(ctx context.Context, svc *services.Service) (string, int) {
 
 	res := svc.CheckOnly(ctx)
 	if res.State != services.StateOK {
-		return res.State.String() + " " + res.Output.String(), http.StatusBadGateway
+		return res.State.String() + " " + res.Output.String(), http.StatusFailedDependency
 	}
 
 	return "Ping Tested OK: " + res.Output.String(), http.StatusOK

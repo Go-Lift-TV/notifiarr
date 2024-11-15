@@ -192,7 +192,7 @@ func (s *Snapshot) getIoStat(ctx context.Context, run bool) error {
 	}
 
 	cmd := exec.CommandContext(ctx, cmdPath, "-x", "-d", "-o", "JSON")
-	sysCallSettings(cmd)
+	SysCallSettings(cmd)
 
 	stderr := &bytes.Buffer{}
 	stdout := &bytes.Buffer{}

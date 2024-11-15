@@ -41,7 +41,7 @@ func testNvidia(ctx context.Context, config *snapshot.NvidiaConfig) (string, int
 	config.Disabled = false
 
 	if err := snaptest.GetNvidia(ctx, config); err != nil {
-		return err.Error(), http.StatusBadGateway
+		return err.Error(), http.StatusFailedDependency
 	}
 
 	msg := fmt.Sprintf("SMI found %d Graphics Adapter", len(snaptest.Nvidia))

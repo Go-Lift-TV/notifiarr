@@ -228,7 +228,7 @@ func readyCommand(
 	}
 
 	cmd := exec.CommandContext(ctx, cmdPath, args...)
-	sysCallSettings(cmd)
+	SysCallSettings(cmd)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

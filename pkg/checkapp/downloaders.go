@@ -18,12 +18,12 @@ import (
 func testQbit(ctx context.Context, config *apps.QbitConfig) (string, int) {
 	qbit, err := qbit.New(ctx, config.Config)
 	if err != nil {
-		return connecting + err.Error(), http.StatusBadGateway
+		return connecting + err.Error(), http.StatusBadRequest
 	}
 
 	xfers, err := qbit.GetXfersContext(ctx)
 	if err != nil {
-		return "Getting Transfers: " + err.Error(), http.StatusBadGateway
+		return "Getting Transfers: " + err.Error(), http.StatusBadRequest
 	}
 
 	return fmt.Sprintf("Connection Successful! %d Transfers", len(xfers)), http.StatusOK
@@ -34,7 +34,7 @@ func testRtorrent(_ context.Context, config *apps.RtorrentConfig) (string, int) 
 
 	result, err := config.Client.Call("system.hostname")
 	if err != nil {
-		return "Getting Server Name: " + err.Error(), http.StatusBadGateway
+		return "Getting Server Name: " + err.Error(), http.StatusFailedDependency
 	}
 
 	if names, ok := result.([]any); ok {
@@ -45,7 +45,7 @@ func testRtorrent(_ context.Context, config *apps.RtorrentConfig) (string, int) 
 		return "Connection Successful! Server name: " + name, http.StatusOK
 	}
 
-	return "Getting Server Name: result was not a string?", http.StatusBadGateway
+	return "Getting Server Name: result was not a string?", http.StatusFailedDependency
 }
 
 func testSabNZB(ctx context.Context, app *apps.SabNZBConfig) (string, int) {
@@ -53,7 +53,7 @@ func testSabNZB(ctx context.Context, app *apps.SabNZBConfig) (string, int) {
 
 	sab, err := app.GetQueue(ctx)
 	if err != nil {
-		return "Getting Queue: " + err.Error(), http.StatusBadGateway
+		return "Getting Queue: " + err.Error(), http.StatusFailedDependency
 	}
 
 	return success + sab.Version, http.StatusOK
@@ -62,7 +62,7 @@ func testSabNZB(ctx context.Context, app *apps.SabNZBConfig) (string, int) {
 func testNZBGet(ctx context.Context, config *apps.NZBGetConfig) (string, int) {
 	ver, err := nzbget.New(config.Config).VersionContext(ctx)
 	if err != nil {
-		return "Getting Version: " + err.Error(), http.StatusBadGateway
+		return "Getting Version: " + err.Error(), http.StatusFailedDependency
 	}
 
 	return fmt.Sprintf("%s%s", success, ver), http.StatusOK
@@ -71,7 +71,7 @@ func testNZBGet(ctx context.Context, config *apps.NZBGetConfig) (string, int) {
 func testDeluge(ctx context.Context, config *apps.DelugeConfig) (string, int) {
 	deluge, err := deluge.New(ctx, config.Config)
 	if err != nil {
-		return connecting + err.Error(), http.StatusBadGateway
+		return connecting + err.Error(), http.StatusFailedDependency
 	}
 
 	return fmt.Sprintf("%s%s", success, deluge.Version), http.StatusOK
@@ -80,7 +80,7 @@ func testDeluge(ctx context.Context, config *apps.DelugeConfig) (string, int) {
 func testTransmission(ctx context.Context, config *apps.XmissionConfig) (string, int) {
 	endpoint, err := url.Parse(config.URL)
 	if err != nil {
-		return "parsing url: " + err.Error(), http.StatusBadGateway
+		return "parsing url: " + err.Error(), http.StatusFailedDependency
 	} else if config.User != "" {
 		endpoint.User = url.UserPassword(config.User, config.Pass)
 	}
@@ -91,7 +91,7 @@ func testTransmission(ctx context.Context, config *apps.XmissionConfig) (string,
 
 	args, err := client.SessionArgumentsGetAll(ctx)
 	if err != nil {
-		return "Getting Server Version: " + err.Error(), http.StatusBadGateway
+		return "Getting Server Version: " + err.Error(), http.StatusFailedDependency
 	}
 
 	return "Transmission Server version: " + *args.Version, http.StatusOK

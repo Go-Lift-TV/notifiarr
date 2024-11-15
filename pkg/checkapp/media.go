@@ -13,7 +13,7 @@ func testPlex(ctx context.Context, app *apps.PlexConfig) (string, int) {
 
 	info, err := app.GetInfo(ctx)
 	if err != nil {
-		return "Getting Info: " + err.Error(), http.StatusBadGateway
+		return "Getting Info: " + err.Error(), http.StatusFailedDependency
 	}
 
 	return "Plex OK! Version: " + info.Version, http.StatusOK
@@ -24,7 +24,7 @@ func testTautulli(ctx context.Context, app *apps.TautulliConfig) (string, int) {
 
 	users, err := app.GetUsers(ctx)
 	if err != nil {
-		return "Getting Users: " + err.Error(), http.StatusBadGateway
+		return "Getting Users: " + err.Error(), http.StatusFailedDependency
 	}
 
 	return fmt.Sprintf("Tautulli OK! Users: %d", len(users.Response.Data)), http.StatusOK
