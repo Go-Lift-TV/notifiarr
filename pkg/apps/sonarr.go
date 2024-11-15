@@ -1120,7 +1120,11 @@ func sonarrDeleteAllCustomFormats(req *http.Request) (int, interface{}) {
 // @Tags         Sonarr
 // @Produce      json
 // @Param        instance  path   int64  true  "instance ID"
+<<<<<<< HEAD
 // @Success      200  {object} apps.Respond.apiResponse{message=[]sonarr.ImportListOutput}  "import list list"
+=======
+// @Success      200  {object} apps.Respond.apiResponse{message=[]sonarr.ImportListOutput}  "list of import lists"
+>>>>>>> dn2_super
 // @Failure      500  {object} apps.Respond.apiResponse{message=string} "instance error"
 // @Failure      404  {object} string "bad token or api key"
 // @Router       /api/sonarr/{instance}/importlist [get]
@@ -1141,7 +1145,11 @@ func sonarrGetImportLists(req *http.Request) (int, interface{}) {
 // @Accept       json
 // @Param        instance  path   int64  true  "instance ID"
 // @Param        listID  path   int64  true  "Import List ID"
+<<<<<<< HEAD
 // @Param        PUT body sonarr.ImportListInput  true  "Updated Import Listcontent"
+=======
+// @Param        PUT body sonarr.ImportListInput  true  "Updated Import List Content"
+>>>>>>> dn2_super
 // @Success      200  {object} apps.Respond.apiResponse{message=sonarr.ImportListOutput}  "import list returns"
 // @Failure      400  {object} apps.Respond.apiResponse{message=string} "invalid json provided"
 // @Failure      500  {object} apps.Respond.apiResponse{message=string} "instance error"

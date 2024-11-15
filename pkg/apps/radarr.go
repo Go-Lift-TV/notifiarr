@@ -917,7 +917,7 @@ func radarrDeleteAllCustomFormats(req *http.Request) (int, interface{}) {
 // @Tags         Radarr
 // @Produce      json
 // @Param        instance  path   int64  true  "instance ID"
-// @Success      200  {object} apps.Respond.apiResponse{message=[]radarr.ImportListOutput}  "import list list"
+// @Success      200  {object} apps.Respond.apiResponse{message=[]radarr.ImportListOutput}  "list of import lists"
 // @Failure      500  {object} apps.Respond.apiResponse{message=string} "instance error"
 // @Failure      404  {object} string "bad token or api key"
 // @Router       /api/radarr/{instance}/importlist [get]
@@ -938,7 +938,7 @@ func radarrGetImportLists(req *http.Request) (int, interface{}) {
 // @Accept       json
 // @Param        instance  path   int64  true  "instance ID"
 // @Param        listID  path   int64  true  "Import List ID"
-// @Param        PUT body radarr.ImportListInput  true  "Updated Import Listcontent"
+// @Param        PUT body radarr.ImportListInput  true  "Updated Import List Content"
 // @Success      200  {object} apps.Respond.apiResponse{message=radarr.ImportListOutput}  "import list returns"
 // @Failure      400  {object} apps.Respond.apiResponse{message=string} "invalid json provided"
 // @Failure      500  {object} apps.Respond.apiResponse{message=string} "instance error"
