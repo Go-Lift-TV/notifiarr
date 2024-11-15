@@ -185,10 +185,14 @@ func (c *Command) exec(ctx context.Context, input *common.ActionInput) (*bytes.B
 
 	if cmd.Stdout != nil {
 		cmd.Stdout = io.MultiWriter(&out, cmd.Stdout)
+	} else {
+		cmd.Stdout = &out
 	}
 
 	if cmd.Stderr != nil {
 		cmd.Stderr = io.MultiWriter(&out, cmd.Stderr)
+	} else {
+		cmd.Stderr = &out
 	}
 
 	start := time.Now()
