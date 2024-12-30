@@ -238,6 +238,7 @@
             {{- range $k, $v := .Disks }}
             <tr>
                 <td>{{$k}}</td>
+                {{- with $v }}
                 <td style="display:none;">{{$v.Device}}</td>
                 <td>
                     <div class="row">
@@ -249,6 +250,9 @@
                     {{if $.ClientInfo.User.DevAllowed}}<div class="col-lg-3 col-md-5 col-sm-12 col-xs-12">{{$v.Opts}}</div>{{end}}
                     </div>
                 </td>
+                {{- else }}
+                <td>-</td><td>-</td>
+                {{- end }}
             </tr>
             {{- end }}
                 <tr class="text-center">
