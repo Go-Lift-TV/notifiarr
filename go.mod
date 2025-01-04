@@ -40,7 +40,7 @@ require (
 	golang.org/x/mod v0.21.0
 	golang.org/x/sys v0.25.0
 	golang.org/x/text v0.18.0
-	golang.org/x/time v0.6.0
+	golang.org/x/time v0.9.0
 	golift.io/cache v0.0.2
 	golift.io/cnfg v0.2.3
 	golift.io/cnfgfile v0.0.0-20240713024420-a5436d84eb48
