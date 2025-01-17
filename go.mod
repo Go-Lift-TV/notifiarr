@@ -2,7 +2,7 @@ module github.com/Notifiarr/notifiarr
 
 go 1.22.0
 
-toolchain go1.22.6
+toolchain go1.23.5
 
 // pflag and tail are pinned to master. 12/31/2022
 
